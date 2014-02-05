@@ -8,3 +8,4 @@
 
 Bar.create(name: "Moe's", hours: "10 AM - 1 AM")
 Bar.create(name: "The Drunken Clam", hours: "12 PM - 4 AM")
+Bar.create(name: "Sutter Station", hours: "2 PM - 6 AM")
