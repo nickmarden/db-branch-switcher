@@ -1,0 +1,7 @@
+<h1>List of bars</h1>
+<table>
+  <tr><th>Name</th><th>Hours</th></tr>
+  <% @bars.each do |bar| %>
+    <tr><td><%= bar.name %></td><td><%= bar.hours %></td></tr>
+  <% end %>
+</table>
