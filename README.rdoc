@@ -1,5 +1,11 @@
 == Why Git branch-based DB names require a Rails server restart
 
+To overcome the "different branches use different schemas" problem
+that plagues Rails apps, it has become vogue to modify database.yml
+to derive the development database name from the current Git branch
+name. This allows each branch to have its own database, whose schema
+contains exactly the migrations and seeds expected in that branch.
+
 This simple application demonstrates why it is not possible to leave
 a rails server (`rails s`) running while switching branches in an
 application whose database name depends on the current Git branch.
@@ -9,7 +15,7 @@ installed, and that the 'postgres' user has no password. Alter
 database.yml accordingly to reflect any differences in your test
 setup; nothing about this sample app is Postgres-dependent.
 
-== The Demo
+== A Demonstration of the problem
 
 1. Build the master DB and start the app
 
@@ -18,3 +24,85 @@ setup; nothing about this sample app is Postgres-dependent.
 
 2. Visit http://localhost:3000 and take note of the data shown
 
+    Name  Hours
+    Moe's 10 AM - 1 AM
+    The Drunken Clam  12 PM - 4 AM
+
+3. Leave the rails app running and (in another terminal window) check out other_branch. You can verify that this creates the database branch_switcher_dev_other_branch.
+
+    git checkout other_branch
+    rake db:setup
+
+4. Visit http://localhost:3000 and take note of the data shown. These are not the bars listed in the branch_switcher_dev_other_branch database!
+
+    Name  Hours
+    Moe's 10 AM - 1 AM
+    The Drunken Clam  12 PM - 4 AM
+
+5. Stop and restart the app, then visit http://localhost:3000 again
+
+    Name  Hours
+    Moe's 10 AM - 1 AM
+    The Drunken Clam  12 PM - 4 AM
+    Sutter Station 2 PM - 6 AM
+
+== What Went Wrong
+
+Although Rails does not cache classes in development mode, it only
+initializes ActiveRecord::Base.connection once at startup time. This
+is when database.yml is read in and ConnectionPools are instantiated.
+
+When we checked out other_branch, the local git information showed
+that we were on the other_branch branch, as evidenced by the fact that
+`rake db:setup` created the branch_switcher_dev_other_branch database.
+However, the running Rails app did not reload database.yml, so its
+ConnectionPool was still pointed to the branch_switcher_dev_master DB.
+
+== From the Postgres Point of View
+
+To verify these findings with concrete data, let's look at the connections
+that are open to the Postgres database during each of these steps:
+
+
+1. Build the master DB and start the app
+
+    postgres=# select datid, datname, pid, application_name from pg_stat_activity where datname != 'postgres';
+      datid  |          datname           |  pid  | application_name
+    ---------+----------------------------+-------+------------------
+     2188305 | branch_switcher_dev_master | 36757 | script/rails
+
+2. Visit http://localhost:3000 and take note of the data shown
+
+      datid  |          datname           |  pid  | application_name
+    ---------+----------------------------+-------+------------------
+     2188305 | branch_switcher_dev_master | 36757 | script/rails
+     2188305 | branch_switcher_dev_master | 36778 | script/rails
+
+3. Leave the rails app running and (in another terminal window) check out other_branch
+
+      datid  |          datname           |  pid  | application_name
+    ---------+----------------------------+-------+------------------
+     2188305 | branch_switcher_dev_master | 36757 | script/rails
+     2188305 | branch_switcher_dev_master | 36778 | script/rails
+
+4. Visit http://localhost:3000 and take note of the data shown. We're still using the database from the master branch!
+
+
+      datid  |          datname           |  pid  | application_name
+    ---------+----------------------------+-------+------------------
+     2188305 | branch_switcher_dev_master | 36757 | script/rails
+     2188305 | branch_switcher_dev_master | 36778 | script/rails
+
+5. Stop and restart the app, then visit http://localhost:3000 again. Finally we're using the intended branch.
+
+      datid  |             datname              |  pid  | application_name
+    ---------+----------------------------------+-------+------------------
+     2188322 | branch_switcher_dev_other_branch | 36980 | script/rails
+     2188322 | branch_switcher_dev_other_branch | 36988 | script/rails
+
+== Conclusion
+
+Using the current Git branch to determine your database name is great,
+but it comes at a cost: you need to restart all of your applications
+that access the database every time you switch branches. It is easy to
+imagine a Guardfile or something similar to automate this process.
